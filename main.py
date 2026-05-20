@@ -1,5 +1,4 @@
 import streamlit as st
-import bcrypt
 from utils import supabase
 from ro import render_ro_registry, render_ro_analytics, check_and_show_alerts
 from mp import render_mp_dashboard
@@ -24,20 +23,20 @@ if 'user_permissions' not in st.session_state:
 if 'alerts_dismissed' not in st.session_state:
     st.session_state.alerts_dismissed = False
 
-# --- ФУНКЦИЯ ЗА ЛОГИН ---
+# --- ФУНКЦИЯ ЗА ЛОГИН (КОРИГИРАНА ЗА ПРАВ ТЕКСТ) ---
 def verify_login(username, password):
     try:
         response = supabase.table("users").select("*").eq("username", username).execute()
         if response.data:
             user_data = response.data[0]
-            stored_hash = user_data.get('password_hash')
-            if stored_hash:
-                if bcrypt.checkpw(password.encode('utf-8'), stored_hash.encode('utf-8')):
-                    st.session_state.logged_in = True
-                    st.session_state.username = user_data['username']
-                    st.session_state.user_role = user_data.get('role', 'Четец')
-                    st.session_state.user_permissions = user_data.get('permissions', {})
-                    return True
+            # Взимаме паролата от колоната 'password' в прав текст
+            stored_password = user_data.get('password') 
+            if stored_password and str(stored_password).strip() == str(password).strip():
+                st.session_state.logged_in = True
+                st.session_state.username = user_data['username']
+                st.session_state.user_role = user_data.get('role', 'Четец')
+                st.session_state.user_permissions = user_data.get('permissions', {})
+                return True
         return False
     except Exception as e:
         st.error(f"Грешка при връзка с базата данни: {e}")
@@ -64,7 +63,6 @@ if not st.session_state.logged_in:
     st.stop()
 
 # --- ПРОВЕРКА ЗА ПРОСРОЧЕНИ СИГНАЛИ (АЛАРМИ) ---
-# Това ще се покаже веднага след логин, ако има просрочени задачи (идва от ro.py)
 if not st.session_state.alerts_dismissed:
     check_and_show_alerts()
 
