@@ -340,7 +340,7 @@ def render_signal_registry():
                     if st.button("Отвори", key=f"kb_btn_{cid}", use_container_width=True): show_ticket_details(tkt, df_complaints)
 
             df_col1 = df_kb[df_kb['current_status'] == "Чака заключение и препоръка"]
-             Pall_col2 = df_kb[df_kb['current_status'] == "Чака проверка"]
+            df_col2 = df_kb[df_kb['current_status'] == "Чака проверка"]
             df_col3 = df_kb[df_kb['current_status'] == "Чака приключване"]
 
             with k_col1:
