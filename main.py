@@ -1,6 +1,8 @@
 import streamlit as st
 from utils import supabase
-from ro import render_ro_registry, render_ro_analytics, check_and_show_alerts
+# Новите "тръби" към разцепените модули
+from signal_registry import render_signal_registry, check_and_show_alerts
+from signal_analytics import render_signal_analytics
 from mp import render_mp_dashboard
 
 # --- КОНФИГУРАЦИЯ НА СТРАНИЦАТА ---
@@ -86,10 +88,10 @@ page = st.sidebar.radio(
     ["Регистър Оплаквания (РО)", "Анализи (РО)", "Пропуснати ползи (ПП)"]
 )
 
-# Зареждане на съответния модул
+# Зареждане на съответния модул през новите функции
 if page == "Регистър Оплаквания (РО)":
-    render_ro_registry()
+    render_signal_registry()
 elif page == "Анализи (РО)":
-    render_ro_analytics()
+    render_signal_analytics()
 elif page == "Пропуснати ползи (ПП)":
     render_mp_dashboard()
