@@ -3,6 +3,7 @@ from utils import supabase
 # Новите "тръби" към разцепените модули
 from signal_registry import render_signal_registry, check_and_show_alerts
 from signal_analytics import render_signal_analytics
+from signal_admin import render_admin_panel
 from mp import render_mp_dashboard
 
 # --- КОНФИГУРАЦИЯ НА СТРАНИЦАТА ---
@@ -83,15 +84,19 @@ if st.sidebar.button("Изход", type="secondary", use_container_width=True):
 st.sidebar.markdown("---")
 st.sidebar.title("📌 Навигация")
 
-page = st.sidebar.radio(
-    "Изберете модул:",
-    ["Регистър Оплаквания (РО)", "Анализи (РО)", "Пропуснати ползи (ПП)"]
-)
+# Динамично меню според ролята
+menu_options = ["Регистър Сигнали", "Анализи (Сигнали)", "Пропуснати ползи (ПП)"]
+if st.session_state.user_role == "Супер-админ":
+    menu_options.append("⚙️ Админ Панел")
 
-# Зареждане на съответния модул през новите функции
-if page == "Регистър Оплаквания (РО)":
+page = st.sidebar.radio("Изберете модул:", menu_options)
+
+# Зареждане на съответния модул
+if page == "Регистър Сигнали":
     render_signal_registry()
-elif page == "Анализи (РО)":
+elif page == "Анализи (Сигнали)":
     render_signal_analytics()
 elif page == "Пропуснати ползи (ПП)":
     render_mp_dashboard()
+elif page == "⚙️ Админ Панел":
+    render_admin_panel()
