@@ -10,10 +10,11 @@ def render_admin_panel():
         st.error("Нямате права за достъп до този модул.")
         st.stop()
 
-    tab_view, tab_add, tab_docs = st.tabs([
+    tab_view, tab_add, tab_rules, tab_docs = st.tabs([
         "👥 Списък потребители", 
         "➕ Добави нов потребител",
-        "切割 📄 Документация на правата"
+        "⚖️ Внос на Правилници",
+        "📄 Документация на правата"
     ])
 
     with tab_view:
@@ -41,7 +42,6 @@ def render_admin_panel():
             col1, col2 = st.columns(2)
             with col1:
                 new_username = st.text_input("Потребителско име *").strip()
-                # Използваме директно подредените роли от новия utils.py
                 new_role = st.selectbox("Избор на твърда йерархична роля *", SYSTEM_ROLES, index=0)
             with col2:
                 new_password = st.text_input("Парола (прав текст) *", type="password").strip()
@@ -59,7 +59,6 @@ def render_admin_panel():
                         if check.data:
                             st.error(f"⚠️ Потребител с име '{new_username}' вече съществува в базата данни!")
                         else:
-                            # Записваме ролята чиста, цялата тежка логика на достъп вече е в utils.py
                             supabase.table("users").insert({
                                 "username": new_username,
                                 "password": new_password,
@@ -70,6 +69,49 @@ def render_admin_panel():
                             st.rerun()
                     except Exception as e:
                         st.error(f"Възникна непредвидена грешка при запис в базата: {e}")
+
+    with tab_rules:
+        st.subheader("📥 Първоначално зареждане и обновяване на Правилниците")
+        st.info("Заредете Excel файл (.xlsx) с актуалните правила. Файлът задължително трябва да съдържа колоните **rulebook_name** (име на правилника) и **rule_text** (текст на правилото).")
+        
+        uploaded_rules = st.file_uploader("Изберете Excel файл", type=["xlsx", "xls"], key="rules_uploader")
+        
+        if uploaded_rules is not None:
+            try:
+                df_rules = pd.read_excel(uploaded_rules)
+                st.write("**Предварителен преглед на разпознатите данни:**")
+                st.dataframe(df_rules.head(5), use_container_width=True)
+                
+                if st.button("🚀 Импортирай правилата в базата данни", type="primary"):
+                    if 'rulebook_name' not in df_rules.columns or 'rule_text' not in df_rules.columns:
+                        st.error("⚠️ Файлът не отговаря на изискванията! Липсват задължителните колони 'rulebook_name' или 'rule_text'.")
+                    else:
+                        # Почистване на празни редове и NaN стойности
+                        df_rules = df_rules.dropna(subset=['rulebook_name', 'rule_text'])
+                        df_rules = df_rules.fillna('')
+                        
+                        records = df_rules[['rulebook_name', 'rule_text']].to_dict(orient='records')
+                        
+                        if records:
+                            with st.spinner("Извършва се запис в базата данни..."):
+                                supabase.table("company_rules").insert(records).execute()
+                            st.success(f"✅ Успешно импортирани {len(records)} правила!")
+                        else:
+                            st.warning("Не бяха открити валидни редове за импортиране.")
+            except Exception as e:
+                st.error(f"Грешка при четене или запис: {e}")
+
+        st.markdown("---")
+        with st.expander("☢️ Опасна зона: Изчистване на всички правила"):
+            st.warning("Това действие ще изтрие всички налични правила от таблицата `company_rules`. Наложените до момента наказания ще запазят текстовете си, но ще загубят референцията към конкретното правило.")
+            if st.button("❌ ИЗТРИЙ ВСИЧКИ ПРАВИЛА", type="primary"):
+                try:
+                    # Изтриване на всички редове чрез условие, което винаги е вярно
+                    supabase.table("company_rules").delete().neq("id", 0).execute()
+                    st.success("✅ Базата с правила беше напълно изчистена!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Възникна грешка при изтриването: {e}")
 
     with tab_docs:
         st.subheader("📋 Официална йерархична матрица на правата в SequaK")
