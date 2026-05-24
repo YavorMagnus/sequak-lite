@@ -8,6 +8,29 @@ import plotly.express as px
 import io
 from utils import supabase, check_permission, TERMINAL_STATUSES
 
+def get_dominant_resolution(action_details_str):
+    """
+    Priority Waterfall (Йерархичен приоритет) за финалните резултати.
+    Търси най-тежката мярка в текста и класифицира сигнала по нея.
+    """
+    if not action_details_str:
+        return "Друго / Без приоритет"
+        
+    priorities = [
+        "Реорганизация",
+        "Наказание",
+        "Обучение",
+        "Планиране на ресурс",
+        "Техническа корекция",
+        "Обсъждане с колега"
+    ]
+    
+    for p in priorities:
+        if p in action_details_str:
+            return p
+            
+    return "Друго / Без приоритет"
+
 def render_signal_analytics():
     st.title("📈 Анализи и Справки (Сигнали)")
     st.markdown("---")
@@ -85,7 +108,7 @@ def render_signal_analytics():
             count_in_prev = len(df_active[mask_prev_in])
             delta_in = count_in_current - count_in_prev
 
-            closed_history = df_hist[df_hist['action_type'] == "Сигналът е приключен"].copy()
+            closed_history = df_hist[df_hist['action_type'].fillna('').str.contains("Сигналът е приключен")].copy()
             closed_merged = pd.merge(df_active[['id', 'current_status']], closed_history[['complaint_id', 'created_at']], left_on='id', right_on='complaint_id', how='inner')
             
             count_closed_current = len(closed_merged[(closed_merged['created_at'] >= start_current) & (closed_merged['created_at'] <= end_current)])
@@ -130,20 +153,33 @@ def render_signal_analytics():
                 else: st.info("Няма постъпили сигнали за този период.")
 
             with g_col2:
-                st.subheader("Първо Заключение (Приключени)")
+                st.subheader("Водещ резултат (Приключени сигнали)")
                 if count_closed_current > 0:
                     closed_ids = closed_merged[(closed_merged['created_at'] >= start_current) & (closed_merged['created_at'] <= end_current)]['id'].tolist()
-                    first_conclusions = []
+                    final_resolutions = []
+                    
                     for cid in closed_ids:
-                        steps = df_hist[(df_hist['complaint_id'] == cid) & (df_hist['action_type'] == 'Назначена стъпка')].sort_values(by='created_at')
+                        # Търсим финалното действие
+                        steps = df_hist[(df_hist['complaint_id'] == cid) & (df_hist['action_type'].fillna('').str.contains('Сигналът е приключен'))].sort_values(by='created_at', ascending=False)
+                        
                         if not steps.empty:
-                            match = re.search(r"Заключение:\s*(.*?)\s*\|", steps.iloc[0]['action_details'])
-                            first_conclusions.append(match.group(1).strip() if match else "Неизвестно")
-                        else: first_conclusions.append("Без заключение")
-                    if first_conclusions:
-                        conc_df = pd.DataFrame(first_conclusions, columns=['Заключение']).value_counts().reset_index()
-                        conc_df.columns = ['Заключение', 'Брой']
-                        fig_conc = px.bar(conc_df, x='Заключение', y='Брой', color='Заключение', color_discrete_sequence=px.colors.qualitative.Set3)
+                            action_details = str(steps.iloc[0]['action_details'])
+                            dom_res = get_dominant_resolution(action_details)
+                            
+                            # Fallback за стари картони: ако финалното приключване няма детайли, гледаме последната стъпка
+                            if dom_res == "Друго / Без приоритет":
+                                last_steps = df_hist[(df_hist['complaint_id'] == cid) & (df_hist['action_type'] == 'Назначена стъпка')].sort_values(by='created_at', ascending=False)
+                                if not last_steps.empty:
+                                    dom_res = get_dominant_resolution(str(last_steps.iloc[0]['action_details']))
+                                    
+                            final_resolutions.append(dom_res)
+                        else: 
+                            final_resolutions.append("Без данни")
+                            
+                    if final_resolutions:
+                        conc_df = pd.DataFrame(final_resolutions, columns=['Решение']).value_counts().reset_index()
+                        conc_df.columns = ['Водещо Решение', 'Брой']
+                        fig_conc = px.bar(conc_df, x='Водещо Решение', y='Брой', color='Водещо Решение', color_discrete_sequence=px.colors.qualitative.Set3)
                         fig_conc.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', showlegend=False)
                         st.plotly_chart(fig_conc, use_container_width=True)
                     else: st.info("Не са намерени заключения.")
