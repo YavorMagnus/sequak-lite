@@ -134,7 +134,7 @@ def show_ticket_details(ticket, df_complaints_param):
                     st.markdown('</div>', unsafe_allow_html=True)
             st.markdown("---")
 
-            # ВЪТРЕШЕН ПРОЦЕС - ТАСКОВЕ И ПРИКЛЮЧВАНЕ
+            # ВЪТРЕШЕН ПРОЦЕС - ТАСКОВЕ И ПРИКЛЮЧВАНЕ (ОТКЛЮЧЕНО ОТ ST.FORM)
             st.subheader("⚙️ Продължаване на процеса (Вътрешен)")
             if has_edit:
                 try:
@@ -147,53 +147,55 @@ def show_ticket_details(ticket, df_complaints_param):
                     task_key = f"t_cnt_{ticket['id']}"
                     if task_key not in st.session_state: st.session_state[task_key] = 1
 
-                    with st.form(f"tasks_form_{ticket['id']}"):
-                        st.info("Можете да добавите до 10 паралелни задачи.")
-                        for i in range(st.session_state[task_key]):
-                            st.markdown(f"**Задача {i+1}**")
-                            col1, col2 = st.columns(2)
-                            conc = col1.selectbox("Заключение", ["Избери..."] + CONCLUSIONS, key=f"tc_{ticket['id']}_{i}")
-                            rec = col2.selectbox("Препоръка", ["Избери..."] + RECOMMENDATIONS, key=f"tr_{ticket['id']}_{i}")
-                            details = st.text_input("Детайли / Коментар (до 500 симв.)", key=f"td_{ticket['id']}_{i}")
-                            
-                            if conc == "Нарушение":
-                                st.markdown("<div style='background-color:#4a1e1e; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
-                                st.write("⚖️ **Дисциплинарно производство**")
-                                crb = st.selectbox("Правилник", ["Избери..."] + rulebooks, key=f"trb_{ticket['id']}_{i}")
-                                rule_opts = ["Избери..."]
-                                if crb != "Избери...":
-                                    rule_opts += df_rules[df_rules['rulebook_name'] == crb]['rule_text'].tolist()
-                                rule_opts.append("Друго (Свободен текст)")
-                                r_sel = st.selectbox("Правило", rule_opts, key=f"trs_{ticket['id']}_{i}")
-                                r_cust = st.text_input("Опишете правилото", key=f"trc_{ticket['id']}_{i}") if r_sel == "Друго (Свободен текст)" else ""
-                                p_name = st.text_input("Име на наказания", key=f"tpn_{ticket['id']}_{i}")
-                                p_val = st.text_input("Размер на наказанието", key=f"tpv_{ticket['id']}_{i}")
-                                st.markdown("</div>", unsafe_allow_html=True)
+                    st.info("Можете да добавите до 10 паралелни задачи.")
+                    
+                    for i in range(st.session_state[task_key]):
+                        st.markdown(f"**Задача {i+1}**")
+                        col1, col2 = st.columns(2)
+                        conc = col1.selectbox("Заключение", ["Избери..."] + CONCLUSIONS, key=f"tc_{ticket['id']}_{i}")
+                        rec = col2.selectbox("Препоръка", ["Избери..."] + RECOMMENDATIONS, key=f"tr_{ticket['id']}_{i}")
+                        details = st.text_input("Детайли / Коментар (до 500 симв.)", key=f"td_{ticket['id']}_{i}")
+                        
+                        if conc == "Нарушение":
+                            st.markdown("<div style='background-color:#4a1e1e; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
+                            st.write("⚖️ **Дисциплинарно производство**")
+                            crb = st.selectbox("Правилник", ["Избери..."] + rulebooks, key=f"trb_{ticket['id']}_{i}")
+                            rule_opts = ["Избери..."]
+                            if crb != "Избери...":
+                                rule_opts += df_rules[df_rules['rulebook_name'] == crb]['rule_text'].tolist()
+                            rule_opts.append("Друго (Свободен текст)")
+                            r_sel = st.selectbox("Правило", rule_opts, key=f"trs_{ticket['id']}_{i}")
+                            r_cust = st.text_input("Опишете правилото", key=f"trc_{ticket['id']}_{i}") if r_sel == "Друго (Свободен текст)" else ""
+                            p_name = st.text_input("Име на наказания", key=f"tpn_{ticket['id']}_{i}")
+                            p_val = st.text_input("Размер на наказанието", key=f"tpv_{ticket['id']}_{i}")
+                            st.markdown("</div>", unsafe_allow_html=True)
 
-                            col3, col4, col5 = st.columns(3)
-                            a1 = col3.selectbox("Изпълнител 1", ["Избери..."] + sys_users + ROLES_LIST, key=f"ta1_{ticket['id']}_{i}")
-                            a2 = col4.selectbox("Изпълнител 2 (Опц.)", ["-"] + sys_users + ROLES_LIST, key=f"ta2_{ticket['id']}_{i}")
-                            dl = col5.date_input("Срок", key=f"tdl_{ticket['id']}_{i}")
-                            st.markdown("---")
+                        col3, col4, col5 = st.columns(3)
+                        a1 = col3.selectbox("Изпълнител 1", ["Избери..."] + sys_users + ROLES_LIST, key=f"ta1_{ticket['id']}_{i}")
+                        a2 = col4.selectbox("Изпълнител 2 (Опц.)", ["-"] + sys_users + ROLES_LIST, key=f"ta2_{ticket['id']}_{i}")
+                        dl = col5.date_input("Срок", key=f"tdl_{ticket['id']}_{i}")
+                        st.markdown("---")
 
-                        submit_tasks = st.form_submit_button("💾 ЗАПАЗИ ЗАДАЧИТЕ В БАЗАТА", type="primary")
-
-                    if st.button("➕ Добави още една задача", key=f"btn_add_t_{ticket['id']}"):
-                        if st.session_state[task_key] < 10: st.session_state[task_key] += 1
-                        st.rerun()
+                    col_btn1, col_btn2 = st.columns([1, 2])
+                    with col_btn1:
+                        if st.button("➕ Добави още една задача", key=f"btn_add_t_{ticket['id']}"):
+                            if st.session_state[task_key] < 10: st.session_state[task_key] += 1
+                            st.rerun()
+                    with col_btn2:
+                        submit_tasks = st.button("💾 ЗАПАЗИ ЗАДАЧИТЕ В БАЗАТА", type="primary", key=f"btn_save_t_{ticket['id']}")
 
                     if submit_tasks:
                         logs = []
                         has_field_check = False
                         for i in range(st.session_state[task_key]):
-                            conc = st.session_state[f"tc_{ticket['id']}_{i}"]
-                            rec = st.session_state[f"tr_{ticket['id']}_{i}"]
-                            if conc == "Избери..." or rec == "Избери...": continue
+                            conc = st.session_state.get(f"tc_{ticket['id']}_{i}")
+                            rec = st.session_state.get(f"tr_{ticket['id']}_{i}")
+                            if conc in ["Избери...", None] or rec in ["Избери...", None]: continue
                             
-                            det = st.session_state[f"td_{ticket['id']}_{i}"]
-                            a1 = st.session_state[f"ta1_{ticket['id']}_{i}"]
-                            a2 = st.session_state[f"ta2_{ticket['id']}_{i}"]
-                            dl = st.session_state[f"tdl_{ticket['id']}_{i}"]
+                            det = st.session_state.get(f"td_{ticket['id']}_{i}", "")
+                            a1 = st.session_state.get(f"ta1_{ticket['id']}_{i}")
+                            a2 = st.session_state.get(f"ta2_{ticket['id']}_{i}")
+                            dl = st.session_state.get(f"tdl_{ticket['id']}_{i}")
                             
                             if rec == "Проверка (поле)": has_field_check = True
 
@@ -208,15 +210,17 @@ def show_ticket_details(ticket, df_complaints_param):
 
                             # Запис на наказание (ако има)
                             if conc == "Нарушение":
-                                rb = st.session_state[f"trb_{ticket['id']}_{i}"]
-                                rsel = st.session_state[f"trs_{ticket['id']}_{i}"]
+                                rb = st.session_state.get(f"trb_{ticket['id']}_{i}")
+                                rsel = st.session_state.get(f"trs_{ticket['id']}_{i}")
                                 rcust = st.session_state.get(f"trc_{ticket['id']}_{i}", "")
-                                p_name = st.session_state[f"tpn_{ticket['id']}_{i}"]
-                                p_val = st.session_state[f"tpv_{ticket['id']}_{i}"]
+                                p_name = st.session_state.get(f"tpn_{ticket['id']}_{i}", "")
+                                p_val = st.session_state.get(f"tpv_{ticket['id']}_{i}", "")
                                 
                                 rule_id = None
-                                if rsel not in ["Избери...", "Друго (Свободен текст)"]:
-                                    rule_id = int(df_rules[(df_rules['rulebook_name'] == rb) & (df_rules['rule_text'] == rsel)].iloc[0]['id'])
+                                if rsel not in ["Избери...", "Друго (Свободен текст)", None]:
+                                    rule_match = df_rules[(df_rules['rulebook_name'] == rb) & (df_rules['rule_text'] == rsel)]
+                                    if not rule_match.empty:
+                                        rule_id = int(rule_match.iloc[0]['id'])
                                 
                                 supabase.table("penalties").insert({
                                     "complaint_id": ticket['id'], "employee_name": p_name, "rule_id": rule_id,
@@ -242,54 +246,57 @@ def show_ticket_details(ticket, df_complaints_param):
                     res_key = f"r_cnt_{ticket['id']}"
                     if res_key not in st.session_state: st.session_state[res_key] = 1
 
-                    with st.form(f"results_form_{ticket['id']}"):
-                        st.warning("Въвеждате окончателните резултати. Сигналът ще бъде затворен.")
-                        for i in range(st.session_state[res_key]):
-                            st.markdown(f"**Резултат {i+1}**")
-                            col1, col2 = st.columns(2)
-                            conc = col1.selectbox("Заключение", ["Избери..."] + CONCLUSIONS, key=f"rc_{ticket['id']}_{i}")
-                            rec = col2.selectbox("Препоръка / Изход", ["Избери..."] + RECOMMENDATIONS, key=f"rr_{ticket['id']}_{i}")
-                            details = st.text_input("Детайли / Коментар (до 500 симв.)", key=f"rd_{ticket['id']}_{i}")
-                            
-                            if conc == "Нарушение":
-                                st.markdown("<div style='background-color:#4a1e1e; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
-                                crb = st.selectbox("Правилник", ["Избери..."] + rulebooks, key=f"rrb_{ticket['id']}_{i}")
-                                rule_opts = ["Избери..."]
-                                if crb != "Избери...": rule_opts += df_rules[df_rules['rulebook_name'] == crb]['rule_text'].tolist()
-                                rule_opts.append("Друго (Свободен текст)")
-                                r_sel = st.selectbox("Правило", rule_opts, key=f"rrs_{ticket['id']}_{i}")
-                                r_cust = st.text_input("Опишете правилото", key=f"rrc_{ticket['id']}_{i}") if r_sel == "Друго (Свободен текст)" else ""
-                                p_name = st.text_input("Име на наказания", key=f"rpn_{ticket['id']}_{i}")
-                                p_val = st.text_input("Размер на наказанието", key=f"rpv_{ticket['id']}_{i}")
-                                st.markdown("</div>", unsafe_allow_html=True)
-                            st.markdown("---")
+                    st.warning("Въвеждате окончателните резултати. Сигналът ще бъде затворен.")
+                    for i in range(st.session_state[res_key]):
+                        st.markdown(f"**Резултат {i+1}**")
+                        col1, col2 = st.columns(2)
+                        conc = col1.selectbox("Заключение", ["Избери..."] + CONCLUSIONS, key=f"rc_{ticket['id']}_{i}")
+                        rec = col2.selectbox("Препоръка / Изход", ["Избери..."] + RECOMMENDATIONS, key=f"rr_{ticket['id']}_{i}")
+                        details = st.text_input("Детайли / Коментар (до 500 симв.)", key=f"rd_{ticket['id']}_{i}")
                         
-                        submit_close = st.form_submit_button("✅ ПРИКЛЮЧИ СИГНАЛА ОКОНЧАТЕЛНО")
-
-                    if st.button("➕ Добави още един резултат", key=f"btn_add_r_{ticket['id']}"):
-                        if st.session_state[res_key] < 10: st.session_state[res_key] += 1
-                        st.rerun()
+                        if conc == "Нарушение":
+                            st.markdown("<div style='background-color:#4a1e1e; padding:10px; border-radius:5px;'>", unsafe_allow_html=True)
+                            crb = st.selectbox("Правилник", ["Избери..."] + rulebooks, key=f"rrb_{ticket['id']}_{i}")
+                            rule_opts = ["Избери..."]
+                            if crb != "Избери...": rule_opts += df_rules[df_rules['rulebook_name'] == crb]['rule_text'].tolist()
+                            rule_opts.append("Друго (Свободен текст)")
+                            r_sel = st.selectbox("Правило", rule_opts, key=f"rrs_{ticket['id']}_{i}")
+                            r_cust = st.text_input("Опишете правилото", key=f"rrc_{ticket['id']}_{i}") if r_sel == "Друго (Свободен текст)" else ""
+                            p_name = st.text_input("Име на наказания", key=f"rpn_{ticket['id']}_{i}")
+                            p_val = st.text_input("Размер на наказанието", key=f"rpv_{ticket['id']}_{i}")
+                            st.markdown("</div>", unsafe_allow_html=True)
+                        st.markdown("---")
+                    
+                    col_btn3, col_btn4 = st.columns([1, 2])
+                    with col_btn3:
+                        if st.button("➕ Добави още един резултат", key=f"btn_add_r_{ticket['id']}"):
+                            if st.session_state[res_key] < 10: st.session_state[res_key] += 1
+                            st.rerun()
+                    with col_btn4:
+                        submit_close = st.button("✅ ПРИКЛЮЧИ СИГНАЛА ОКОНЧАТЕЛНО", type="primary", key=f"btn_close_{ticket['id']}")
 
                     if submit_close:
                         logs = []
                         for i in range(st.session_state[res_key]):
-                            conc = st.session_state[f"rc_{ticket['id']}_{i}"]
-                            rec = st.session_state[f"rr_{ticket['id']}_{i}"]
-                            if conc == "Избери..." or rec == "Избери...": continue
+                            conc = st.session_state.get(f"rc_{ticket['id']}_{i}")
+                            rec = st.session_state.get(f"rr_{ticket['id']}_{i}")
+                            if conc in ["Избери...", None] or rec in ["Избери...", None]: continue
                             
-                            det = st.session_state[f"rd_{ticket['id']}_{i}"]
+                            det = st.session_state.get(f"rd_{ticket['id']}_{i}", "")
                             log_text = f"[{conc}] {rec} -> {det}"
 
                             if conc == "Нарушение":
-                                rb = st.session_state[f"rrb_{ticket['id']}_{i}"]
-                                rsel = st.session_state[f"rrs_{ticket['id']}_{i}"]
+                                rb = st.session_state.get(f"rrb_{ticket['id']}_{i}")
+                                rsel = st.session_state.get(f"rrs_{ticket['id']}_{i}")
                                 rcust = st.session_state.get(f"rrc_{ticket['id']}_{i}", "")
-                                p_name = st.session_state[f"rpn_{ticket['id']}_{i}"]
-                                p_val = st.session_state[f"rpv_{ticket['id']}_{i}"]
+                                p_name = st.session_state.get(f"rpn_{ticket['id']}_{i}", "")
+                                p_val = st.session_state.get(f"rpv_{ticket['id']}_{i}", "")
                                 
                                 rule_id = None
-                                if rsel not in ["Избери...", "Друго (Свободен текст)"]:
-                                    rule_id = int(df_rules[(df_rules['rulebook_name'] == rb) & (df_rules['rule_text'] == rsel)].iloc[0]['id'])
+                                if rsel not in ["Избери...", "Друго (Свободен текст)", None]:
+                                    rule_match = df_rules[(df_rules['rulebook_name'] == rb) & (df_rules['rule_text'] == rsel)]
+                                    if not rule_match.empty:
+                                        rule_id = int(rule_match.iloc[0]['id'])
                                 
                                 supabase.table("penalties").insert({
                                     "complaint_id": ticket['id'], "employee_name": p_name, "rule_id": rule_id,
