@@ -373,7 +373,7 @@ def render_signal_registry():
             with st.form(f"new_complaint_form_{st.session_state.form_key}"):
                 st.subheader("Основни данни")
                 col1, col2, col3, col4 = st.columns(4)
-                with col1: channel = st.selectbox("Канал на постъпване *", ["Телефон", "Email", "Чат", "Друго"])
+                with col1: channel = st.selectbox("Канал на постъпване *", ["Телефон", "Email", "Чат", "Контролинг - камери", "Контролинг - присъствено", "Друго"])
                 with col2: company_selected = st.selectbox("Фирма *", COMPANY_LIST)
                 with col3: event_date = st.date_input("Дата на сигнала *")
                 with col4: event_time_str = st.text_input("Час (напр. 1430) *", placeholder="Въведете цифри...")
