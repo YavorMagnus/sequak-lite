@@ -134,7 +134,7 @@ def show_ticket_details(ticket, df_complaints_param):
                     st.markdown('</div>', unsafe_allow_html=True)
             st.markdown("---")
 
-            # ВЪТРЕШЕН ПРОЦЕС - ТАСКОВЕ И ПРИКЛЮЧВАНЕ (ОТКЛЮЧЕНО ОТ ST.FORM)
+            # ВЪТРЕШЕН ПРОЦЕС - ТАСКОВЕ И ПРИКЛЮЧВАНЕ
             st.subheader("⚙️ Продължаване на процеса (Вътрешен)")
             if has_edit:
                 try:
@@ -208,7 +208,7 @@ def show_ticket_details(ticket, df_complaints_param):
                                 "deadline_date": str(dl), "created_by": st.session_state.username
                             }).execute()
 
-                            # Запис на наказание (ако има)
+                            # Запис на наказание и генериране на лог
                             if conc == "Нарушение":
                                 rb = st.session_state.get(f"trb_{ticket['id']}_{i}")
                                 rsel = st.session_state.get(f"trs_{ticket['id']}_{i}")
@@ -217,16 +217,21 @@ def show_ticket_details(ticket, df_complaints_param):
                                 p_val = st.session_state.get(f"tpv_{ticket['id']}_{i}", "")
                                 
                                 rule_id = None
+                                applied_rule_text = rsel
                                 if rsel not in ["Избери...", "Друго (Свободен текст)", None]:
                                     rule_match = df_rules[(df_rules['rulebook_name'] == rb) & (df_rules['rule_text'] == rsel)]
                                     if not rule_match.empty:
                                         rule_id = int(rule_match.iloc[0]['id'])
+                                elif rsel == "Друго (Свободен текст)":
+                                    applied_rule_text = f"Друго: {rcust}"
                                 
                                 supabase.table("penalties").insert({
                                     "complaint_id": ticket['id'], "employee_name": p_name, "rule_id": rule_id,
                                     "custom_rule_text": rcust, "penalty_description": p_val, "created_by": st.session_state.username
                                 }).execute()
-                                logs.append(f"Назначена задача: {rec} (вкл. наказание за {p_name})")
+                                
+                                # Обогатеният стринг
+                                logs.append(f"Назначена задача: {rec} (Нарушено правило: {applied_rule_text} | Наказан: {p_name} - {p_val})")
                             else:
                                 logs.append(f"Назначена задача: {rec} -> {a1}")
 
@@ -293,16 +298,21 @@ def show_ticket_details(ticket, df_complaints_param):
                                 p_val = st.session_state.get(f"rpv_{ticket['id']}_{i}", "")
                                 
                                 rule_id = None
+                                applied_rule_text = rsel
                                 if rsel not in ["Избери...", "Друго (Свободен текст)", None]:
                                     rule_match = df_rules[(df_rules['rulebook_name'] == rb) & (df_rules['rule_text'] == rsel)]
                                     if not rule_match.empty:
                                         rule_id = int(rule_match.iloc[0]['id'])
+                                elif rsel == "Друго (Свободен текст)":
+                                    applied_rule_text = f"Друго: {rcust}"
                                 
                                 supabase.table("penalties").insert({
                                     "complaint_id": ticket['id'], "employee_name": p_name, "rule_id": rule_id,
                                     "custom_rule_text": rcust, "penalty_description": p_val, "created_by": st.session_state.username
                                 }).execute()
-                                log_text += f" (Наказан: {p_name} - {p_val})"
+                                
+                                # Обогатеният стринг
+                                log_text += f" (Нарушено правило: {applied_rule_text} | Наказан: {p_name} - {p_val})"
                             logs.append(log_text)
 
                         final_log = " | ".join(logs) if logs else "Сигналът е приключен без детайлни резултати."
