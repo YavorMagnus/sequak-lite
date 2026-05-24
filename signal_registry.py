@@ -379,3 +379,60 @@ def render_signal_registry():
                 with col4: event_time_str = st.text_input("Час (напр. 1430) *", placeholder="Въведете цифри...")
 
                 st.subheader("Данни за клиента")
+                col5, col6, col7, col8 = st.columns([2, 1, 1, 1])
+                with col5:
+                    client_name = st.text_input("Име/Наименование *")
+                    client_type = st.selectbox("Вид клиент", ["Юридическо лице", "Физическо лице", "Неизвестно"])
+                with col6:
+                    client_phone = st.text_input("Телефон")
+                    client_eik = st.text_input("ЕИК (за ЮЛ)")
+                with col7:
+                    client_email = st.text_input("Email")
+                    contract_number = st.text_input("Договор/Поръчка №", max_chars=20)
+                with col8: client_action_needed = st.checkbox("Очаква ли се действие с клиента?", value=False)
+                    
+                st.subheader("Същност на проблема")
+                col9, col10 = st.columns(2)
+                with col9:
+                    case_type = st.selectbox("Касае *", ["Наем", "Продажба", "Ремонт", "Друго"])
+                    call_number = st.text_input("Номер на разговора (аудио запис)")
+                with col10: 
+                    machines = st.text_input("Машина/и", max_chars=100)
+                    consultant_name = st.text_input("Консултант (Имена)", max_chars=100)
+                    
+                description = st.text_area("Изложение на проблема *", height=120)
+                st.write("*Полетата със звезда са задължителни.*")
+                submit_button = st.form_submit_button("Запиши първичен картон", type="primary")
+
+                if submit_button:
+                    formatted_time = parse_smart_time(event_time_str)
+                    if not company_selected or not client_name or not description or not event_time_str: st.error("⚠️ Моля, попълнете задължителните полета!")
+                    elif not formatted_time: st.error("⚠️ Невалиден час!")
+                    else:
+                        try:
+                            company_id = COMPANY_MAP.get(company_selected)
+                            datetime_str = f"{event_date.strftime('%Y-%m-%d')} {formatted_time}"
+                            new_record = {
+                                "channel": channel, "event_datetime": datetime_str, "company_id": company_id,
+                                "client_name": client_name, "client_phone": client_phone, "client_email": client_email,
+                                "client_type": client_type, "client_eik": client_eik, "contract_number": contract_number,
+                                "case_type": case_type, "call_number": call_number, "machines": machines, "consultant": consultant_name,
+                                "client_action_needed": client_action_needed, "description": description,
+                                "current_status": "Чака заключение и препоръка"
+                            }
+                            inserted = supabase.table("complaints").insert(new_record).execute()
+                            st.session_state.form_key += 1
+                            if inserted.data: st.session_state.auto_open_ticket_id = inserted.data[0]['id']
+                            st.rerun()
+                        except Exception as e: st.error(f"Грешка при запис: {e}")
+        else:
+            st.warning("⚠️ Нямате права за създаване на нови сигнали.")
+
+    if 'auto_open_ticket_id' in st.session_state:
+        t_id = st.session_state['auto_open_ticket_id']
+        del st.session_state['auto_open_ticket_id']
+        try:
+            t_res = supabase.table("complaints").select("*").eq("id", t_id).execute()
+            if t_res.data: show_ticket_details(t_res.data[0], df_complaints)
+        except Exception as e:
+            st.error(f"Системна грешка при отваряне на картона: {e}")
