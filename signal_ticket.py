@@ -147,6 +147,9 @@ def show_ticket_details(ticket, df_complaints_param):
                     task_key = f"t_cnt_{ticket['id']}"
                     if task_key not in st.session_state: st.session_state[task_key] = 1
 
+                    def add_task_field():
+                        if st.session_state[task_key] < 10: st.session_state[task_key] += 1
+
                     st.info("Можете да добавите до 10 паралелни задачи.")
                     
                     for i in range(st.session_state[task_key]):
@@ -178,9 +181,7 @@ def show_ticket_details(ticket, df_complaints_param):
 
                     col_btn1, col_btn2 = st.columns([1, 2])
                     with col_btn1:
-                        if st.button("➕ Добави още една задача", key=f"btn_add_t_{ticket['id']}"):
-                            if st.session_state[task_key] < 10: st.session_state[task_key] += 1
-                            st.rerun()
+                        st.button("➕ Добави още една задача", key=f"btn_add_t_{ticket['id']}", on_click=add_task_field)
                     with col_btn2:
                         submit_tasks = st.button("💾 ЗАПАЗИ ЗАДАЧИТЕ В БАЗАТА", type="primary", key=f"btn_save_t_{ticket['id']}")
 
@@ -230,7 +231,6 @@ def show_ticket_details(ticket, df_complaints_param):
                                     "custom_rule_text": rcust, "penalty_description": p_val, "created_by": st.session_state.username
                                 }).execute()
                                 
-                                # Обогатеният стринг
                                 logs.append(f"Назначена задача: {rec} (Нарушено правило: {applied_rule_text} | Наказан: {p_name} - {p_val})")
                             else:
                                 logs.append(f"Назначена задача: {rec} -> {a1}")
@@ -250,6 +250,9 @@ def show_ticket_details(ticket, df_complaints_param):
                 elif mode == "🏁 Окончателно приключване на сигнала":
                     res_key = f"r_cnt_{ticket['id']}"
                     if res_key not in st.session_state: st.session_state[res_key] = 1
+
+                    def add_result_field():
+                        if st.session_state[res_key] < 10: st.session_state[res_key] += 1
 
                     st.warning("Въвеждате окончателните резултати. Сигналът ще бъде затворен.")
                     for i in range(st.session_state[res_key]):
@@ -274,9 +277,7 @@ def show_ticket_details(ticket, df_complaints_param):
                     
                     col_btn3, col_btn4 = st.columns([1, 2])
                     with col_btn3:
-                        if st.button("➕ Добави още един резултат", key=f"btn_add_r_{ticket['id']}"):
-                            if st.session_state[res_key] < 10: st.session_state[res_key] += 1
-                            st.rerun()
+                        st.button("➕ Добави още един резултат", key=f"btn_add_r_{ticket['id']}", on_click=add_result_field)
                     with col_btn4:
                         submit_close = st.button("✅ ПРИКЛЮЧИ СИГНАЛА ОКОНЧАТЕЛНО", type="primary", key=f"btn_close_{ticket['id']}")
 
@@ -311,7 +312,6 @@ def show_ticket_details(ticket, df_complaints_param):
                                     "custom_rule_text": rcust, "penalty_description": p_val, "created_by": st.session_state.username
                                 }).execute()
                                 
-                                # Обогатеният стринг
                                 log_text += f" (Нарушено правило: {applied_rule_text} | Наказан: {p_name} - {p_val})"
                             logs.append(log_text)
 
