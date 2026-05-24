@@ -5,10 +5,9 @@ import re
 import urllib.parse
 from utils import (supabase, COMPANY_MAP, COMPANY_LIST, parse_smart_time,
                    ROLES_LIST, TERMINAL_STATUSES, get_related_signals, check_permission)
-# Импортираме картона на сигнала от неговия нов самостоятелен модул
 from signal_ticket import show_ticket_details
 
-def show_company_tickets(company_code, df_complaints):
+def show_company_tickets(company_code, df_complaints, active_tasks_dict):
     col_title, col_btn = st.columns([4, 1])
     with col_title: st.subheader(f"📋 Всички сигнали за {company_code}")
     with col_btn:
@@ -26,15 +25,13 @@ def show_company_tickets(company_code, df_complaints):
         return
 
     for _, row in comp_df.iterrows():
+        cid = row['id']
         status = row.get('current_status', 'Неопределен')
         client = row.get('client_name', 'Неизвестен')
         has_client_action = row.get('client_action_needed', False)
         
-        is_overdue = False
-        deadline_val = row.get('current_deadline')
-        if pd.notna(deadline_val) and status not in TERMINAL_STATUSES:
-            dt_obj = pd.to_datetime(deadline_val, errors='coerce')
-            if pd.notna(dt_obj) and dt_obj.date() < datetime.date.today(): is_overdue = True
+        task_info = active_tasks_dict.get(cid, {})
+        is_overdue = task_info.get('is_overdue', False)
                 
         has_dup = not get_related_signals(row, df_complaints).empty
         dup_badge = " <span style='color:#ff4b4b;' title='Има свързани сигнали (30 дни)'>🚨</span>" if has_dup else ""
@@ -49,54 +46,89 @@ def show_company_tickets(company_code, df_complaints):
         with colB:
             color = "gray" if status == "Сгрешен/Анулиран" else "red" if is_overdue else "green" if status == "Приключено" else "orange"
             st.markdown(f"Статус: <span style='color:{color}'>{status}</span>", unsafe_allow_html=True)
-            if is_overdue: st.markdown("<span style='color:red; font-size:0.8em;'>⚠️ Просрочен!</span>", unsafe_allow_html=True)
+            if is_overdue: st.markdown("<span style='color:red; font-size:0.8em;'>⚠️ Просрочена задача!</span>", unsafe_allow_html=True)
         with colC:
-            if st.button("Отвори", key=f"btn_open_{row['id']}"): show_ticket_details(row.to_dict(), df_complaints)
+            if st.button("Отвори", key=f"btn_open_{cid}"): show_ticket_details(row.to_dict(), df_complaints)
         st.divider()
 
 def check_and_show_alerts():
-    # Само ако има права за редакция вижда алармите
-    if check_permission("ro_registry", "edit_kanban") and not st.session_state.alerts_dismissed:
-        try:
-            res_active = supabase.table("complaints").select("*, companies(code)").not_.in_("current_status", TERMINAL_STATUSES).execute()
-            df_active_alerts = pd.DataFrame(res_active.data)
-            
-            overdue_tickets = []
-            if not df_active_alerts.empty:
-                df_active_alerts['Фирма'] = df_active_alerts['companies'].apply(lambda x: x.get('code', '') if isinstance(x, dict) else '')
-                for _, row in df_active_alerts.iterrows():
-                    dl_val = row.get('current_deadline')
-                    if pd.notna(dl_val):
-                        dt_obj = pd.to_datetime(dl_val, errors='coerce')
-                        if pd.notna(dt_obj) and dt_obj.date() < datetime.date.today():
-                            overdue_tickets.append(row)
-            
-            if len(overdue_tickets) > 0:
-                st.markdown("<h1 style='color: #ff4b4b; text-align: center;'>🚨 ВНИМАНИЕ: ПРОСРОЧЕНИ СИГНАЛИ! 🚨</h1>", unsafe_allow_html=True)
-                st.markdown(f"<h4 style='text-align: center;'>Имате <b>{len(overdue_tickets)}</b> активни сигнала с изтекъл срок, които изискват вашето внимание.</h4>", unsafe_allow_html=True)
-                st.markdown("---")
-                
-                for tkt in overdue_tickets:
-                    col1, col2, col3 = st.columns([4, 2, 1])
-                    dt_str = pd.to_datetime(tkt['event_datetime']).strftime('%d.%m.%Y')
-                    col1.markdown(f"**Клиент:** {tkt['client_name']} | **Фирма:** {tkt['Фирма']}")
-                    col2.markdown(f"<span style='color: #ff4b4b;'>Срок: {tkt['current_deadline']}</span> | Статус: {tkt['current_status']}", unsafe_allow_html=True)
-                    with col3:
-                        if st.button("Отвори Картона", key=f"alert_btn_{tkt['id']}", use_container_width=True):
-                            st.session_state.auto_open_ticket_id = tkt['id']
-                            st.session_state.alerts_dismissed = True
-                            st.rerun()
-                    st.divider()
-                    
-                st.markdown("<br><br>", unsafe_allow_html=True)
-                if st.button("✅ РАЗБРАХ, ПРОДЪЛЖИ КЪМ РАБОТНОТО ПРОСТРАНСТВО", type="primary", use_container_width=True):
-                    st.session_state.alerts_dismissed = True
-                    st.rerun()
-                st.stop()
-            else:
-                st.session_state.alerts_dismissed = True
-        except Exception:
+    """Новият интелигентен Welcome Дашборд за задачи"""
+    if not check_permission("ro_registry", "edit_kanban") or st.session_state.get('alerts_dismissed', False):
+        return
+        
+    try:
+        # Изтегляме всички отворени задачи и ги свързваме с картоните
+        res_tasks = supabase.table("ticket_tasks").select("*, complaints(client_name, current_status, company_id)").eq("status", "Отворена").execute()
+        if not res_tasks.data:
             st.session_state.alerts_dismissed = True
+            return
+            
+        today = datetime.date.today()
+        my_user = st.session_state.username
+        is_admin = st.session_state.user_role in ["Администратор", "Супер-админ"]
+        
+        my_overdue = []
+        my_upcoming = []
+        other_overdue = []
+        
+        # Сортиране на задачите
+        for t in res_tasks.data:
+            comp = t.get('complaints')
+            if not comp or comp.get('current_status') in TERMINAL_STATUSES: continue
+            
+            c_id = comp.get('company_id')
+            t['Фирма'] = next((code for code, i in COMPANY_MAP.items() if i == c_id), '-')
+            t['client_name'] = comp.get('client_name', 'Неизвестен')
+            
+            dl_obj = pd.to_datetime(t.get('deadline_date'), errors='coerce')
+            is_ovd = pd.notna(dl_obj) and dl_obj.date() < today
+            
+            is_mine = (t.get('assigned_to_1') == my_user) or (t.get('assigned_to_2') == my_user)
+            
+            if is_mine:
+                if is_ovd: my_overdue.append(t)
+                else: my_upcoming.append(t)
+            elif is_ovd and is_admin:
+                other_overdue.append(t)
+
+        if not my_overdue and not my_upcoming and not other_overdue:
+            st.session_state.alerts_dismissed = True
+            return
+
+        # ВИЗУАЛИЗАЦИЯ НА WELCOME ЕКРАНА
+        st.markdown("<h2 style='text-align: center; color: #00aaff;'>👋 Добре дошли в работното си пространство!</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #ccc;'>Преглед на активните паралелни задачи преди да влезете в регистъра.</p>", unsafe_allow_html=True)
+        st.markdown("---")
+
+        def render_task_list(tasks, title, color, icon):
+            if not tasks: return
+            st.markdown(f"<h4 style='color: {color};'>{icon} {title} ({len(tasks)})</h4>", unsafe_allow_html=True)
+            for t in tasks:
+                col1, col2, col3 = st.columns([4, 2, 1])
+                col1.markdown(f"**Клиент:** {t['client_name']} | **Фирма:** {t['Фирма']}")
+                col1.caption(f"Задача: {t['recommendation_type']}")
+                col2.markdown(f"<span style='color: {color};'>Срок: {t.get('deadline_date', 'Няма')}</span>", unsafe_allow_html=True)
+                with col3:
+                    if st.button("Отвори Картона", key=f"alert_btn_{t['id']}", use_container_width=True):
+                        st.session_state.auto_open_ticket_id = t['complaint_id']
+                        st.session_state.alerts_dismissed = True
+                        st.rerun()
+            st.markdown("<br>", unsafe_allow_html=True)
+
+        render_task_list(my_overdue, "МОИ ПРОСРОЧЕНИ ЗАДАЧИ", "#ff4b4b", "🚨")
+        render_task_list(my_upcoming, "МОИ АКТИВНИ ЗАДАЧИ (В СРОК)", "#FFD700", "📌")
+        if is_admin:
+            render_task_list(other_overdue, "ПРОСРОЧЕНИ ЗАДАЧИ НА ДРУГИ СЛУЖИТЕЛИ (АДМИН ИЗГЛЕД)", "#ff9900", "👁️")
+            
+        st.markdown("---")
+        if st.button("✅ РАЗБРАХ, ПРОДЪЛЖИ КЪМ РЕГИСТЪРА", type="primary", use_container_width=True):
+            st.session_state.alerts_dismissed = True
+            st.rerun()
+        st.stop()
+        
+    except Exception as e:
+        st.error(f"Грешка при зареждане на задачите: {e}")
+        st.session_state.alerts_dismissed = True
 
 def render_signal_registry():
     st.title("📝 Сигнали и оплаквания")
@@ -112,65 +144,38 @@ def render_signal_registry():
             st.session_state.ro_sort_asc = True
         
     try:
+        # 1. Изтегляме всички картони
         res = supabase.table("complaints").select("*, companies(code)").limit(100000).execute()
         df_complaints = pd.DataFrame(res.data)
         if not df_complaints.empty:
             df_complaints['Фирма'] = df_complaints['companies'].apply(lambda x: x.get('code', '') if isinstance(x, dict) else '')
             
-        hist_res = supabase.table("complaint_history").select("complaint_id, assigned_to, deadline_date, action_details, action_type").order("created_at", desc=True).limit(100000).execute()
-        df_hist_full = pd.DataFrame(hist_res.data)
+        # 2. Изтегляме активните паралелни задачи за мапинг
+        tasks_res = supabase.table("ticket_tasks").select("*").eq("status", "Отворена").execute()
+        df_tasks = pd.DataFrame(tasks_res.data) if tasks_res.data else pd.DataFrame()
         
-        latest_hist_dict = {}
-        if not df_hist_full.empty and not df_complaints.empty:
-            for cid in df_complaints['id'].unique():
-                comp_hist = df_hist_full[df_hist_full['complaint_id'] == cid]
-                if not comp_hist.empty:
-                    action_steps = comp_hist[comp_hist['action_type'] == 'Назначена стъпка']
-                    if not action_steps.empty:
-                        last_action = action_steps.iloc[0]
-                        action_str = str(last_action.get('action_details', ''))
-                        rec_match = re.search(r"Препоръка:\s*(.*?)(?:\s*\||$)", action_str)
-                        rec_text = rec_match.group(1).strip() if rec_match else "Няма инфо"
-                        latest_hist_dict[cid] = {'assignee': last_action.get('assigned_to') or "Не е посочен", 'recommendation': rec_text}
-                    else: latest_hist_dict[cid] = {'assignee': "Не е посочен", 'recommendation': "Няма назначена стъпка"}
-                else: latest_hist_dict[cid] = {'assignee': "Не е посочен", 'recommendation': "Няма история"}
+        active_tasks_dict = {}
+        if not df_tasks.empty and not df_complaints.empty:
+            for cid, group in df_tasks.groupby('complaint_id'):
+                a1 = group['assigned_to_1'].dropna().tolist()
+                a2 = group['assigned_to_2'].dropna().tolist()
+                all_a = list(set(a1 + a2))
+                all_a = [a for a in all_a if a.strip()]
+                
+                acts = group['recommendation_type'].dropna().unique().tolist()
+                dls = pd.to_datetime(group['deadline_date'], errors='coerce').dropna()
+                
+                active_tasks_dict[cid] = {
+                    'assignees': ", ".join(all_a) if all_a else "Не е посочен",
+                    'recommendations': " + ".join(acts) if acts else "Няма активни",
+                    'earliest_deadline': dls.min().strftime('%Y-%m-%d') if not dls.empty else None,
+                    'is_overdue': (dls.dt.date < datetime.date.today()).any() if not dls.empty else False
+                }
+
     except Exception as e:
         st.error(f"Грешка при връзка с DB: {e}")
         df_complaints = pd.DataFrame()
-        df_hist_full = pd.DataFrame()
-        latest_hist_dict = {}
-
-    # =========================================================
-    # 🔔 ЦЕНТЪР ЗА ИЗВЕСТИЯ (МОИТЕ ЗАДАЧИ)
-    # =========================================================
-    if not df_complaints.empty and check_permission("ro_registry", "edit_kanban"):
-        my_active_tasks = []
-        for _, row in df_complaints.iterrows():
-            cid = row['id']
-            status = row.get('current_status', '')
-            if status not in TERMINAL_STATUSES:
-                assignee = latest_hist_dict.get(cid, {}).get('assignee', '')
-                if assignee == st.session_state.username:
-                    my_active_tasks.append(row)
-
-        if my_active_tasks:
-            st.markdown(f"""
-            <div style="background-color: #0d2136; border-left: 5px solid #00aaff; padding: 15px; border-radius: 5px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0, 170, 255, 0.1);">
-                <h3 style="color: #00aaff; margin-top: 0; margin-bottom: 5px;">🔔 Имате {len(my_active_tasks)} задачи, възложени лично на Вас!</h3>
-                <p style="color: #ccc; font-size: 0.9em; margin-bottom: 15px;">Следните active сигнали очакват Вашето действие:</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            for task in my_active_tasks:
-                col_t1, col_t2, col_t3 = st.columns([4, 2, 1])
-                dt_str = pd.to_datetime(task.get('event_datetime')).strftime('%d.%m.%Y') if pd.notna(task.get('event_datetime')) else ""
-                col_t1.markdown(f"👤 **{task.get('client_name')}** | 🏢 {task.get('Фирма')} | 📅 {dt_str}")
-                col_t2.markdown(f"<span style='color: #FFD700;'>{task.get('current_status')}</span>", unsafe_allow_html=True)
-                with col_t3:
-                    if st.button("Отвори", key=f"my_task_btn_{task['id']}", use_container_width=True):
-                        st.session_state.auto_open_ticket_id = task['id']
-                        st.rerun()
-            st.markdown("<br>", unsafe_allow_html=True)
+        active_tasks_dict = {}
 
     tab_list, tab_kanban, tab_new = st.tabs(["👁️ Птичи поглед (Дашборд)", "📋 - Канбан дъска", "➕ Въвеждане на нов сигнал"])
     
@@ -180,7 +185,7 @@ def render_signal_registry():
         
         if not df_complaints.empty:
             df_to_display = df_complaints.copy()
-            df_to_display['assignee'] = df_to_display['id'].map(lambda x: latest_hist_dict.get(x, {}).get('assignee', 'Не е посочен'))
+            df_to_display['assignee'] = df_to_display['id'].map(lambda x: active_tasks_dict.get(x, {}).get('assignees', 'Не е посочен'))
             
             if search_query:
                 q = search_query.lower()
@@ -223,7 +228,7 @@ def render_signal_registry():
                 with h_col5:
                     arrow = " ↑" if st.session_state.ro_sort_col == 'assignee' and st.session_state.ro_sort_asc else " ↓" if st.session_state.ro_sort_col == 'assignee' else ""
                     st.markdown(f'<div class="sort-btn-container">', unsafe_allow_html=True)
-                    st.button(f"Отговорник{arrow}", key="btn_sort_assignee", on_click=handle_sort, args=('assignee',), use_container_width=True)
+                    st.button(f"Отговорници{arrow}", key="btn_sort_assignee", on_click=handle_sort, args=('assignee',), use_container_width=True)
                     st.markdown('</div>', unsafe_allow_html=True)
                 with h_col6: st.markdown("**Действие**")
                 st.divider()
@@ -266,7 +271,12 @@ def render_signal_registry():
                         comp_data = df_complaints[df_complaints['Фирма'] == comp]
                         unresolved = len(comp_data[~comp_data['current_status'].isin(TERMINAL_STATUSES)])
                         in_dispute = len(comp_data[(~comp_data['current_status'].isin(TERMINAL_STATUSES)) & (comp_data['client_action_needed'] == True)])
-                        overdue = sum(1 for _, row in comp_data.iterrows() if row.get('current_status') not in TERMINAL_STATUSES and pd.notna(row.get('current_deadline')) and pd.to_datetime(row.get('current_deadline'), errors='coerce').date() < datetime.date.today())
+                        
+                        # Преброяваме просрочените на база на паралелните задачи
+                        overdue = 0
+                        for _, r in comp_data.iterrows():
+                            if r.get('current_status') not in TERMINAL_STATUSES and active_tasks_dict.get(r['id'], {}).get('is_overdue'):
+                                overdue += 1
                     else: unresolved, overdue, in_dispute = 0, 0, 0
                     
                     st.write(f"**Неприключени:** {unresolved} бр.")
@@ -279,7 +289,7 @@ def render_signal_registry():
 
         if st.session_state.active_company:
             st.markdown("---")
-            show_company_tickets(st.session_state.active_company, df_complaints)
+            show_company_tickets(st.session_state.active_company, df_complaints, active_tasks_dict)
 
     with tab_kanban:
         st.markdown("### Оперативно управление на сигналите")
@@ -316,23 +326,22 @@ def render_signal_registry():
                 client = tkt.get('client_name', 'Неизвестен')
                 comp_name = tkt.get('Фирма', '')
                 dt_str = pd.to_datetime(tkt.get('event_datetime')).strftime('%d.%m.%Y')
-                is_overdue = pd.notna(tkt.get('current_deadline')) and pd.to_datetime(tkt.get('current_deadline'), errors='coerce').date() < datetime.date.today()
                 in_dispute = tkt.get('client_action_needed', False)
                 
-                meta_info = latest_hist_dict.get(cid, {'assignee': 'Не е посочен', 'recommendation': 'Няма'})
-                dl_display = tkt.get('current_deadline') if pd.notna(tkt.get('current_deadline')) else "Няма"
+                meta_info = active_tasks_dict.get(cid, {'assignees': 'Не е посочен', 'recommendations': 'Няма задачи', 'earliest_deadline': 'Няма', 'is_overdue': False})
+                is_overdue = meta_info['is_overdue']
                 
                 card_class = "kanban-card overdue" if is_overdue else "kanban-card dispute" if in_dispute else "kanban-card"
                 badge_dispute = " 🔵 [Диспут]" if in_dispute else ""
-                badge_overdue = " 🔴 [Просрочен]" if is_overdue else ""
+                badge_overdue = " 🔴 [Просрочена задача]" if is_overdue else ""
                 
                 html_card = f"""
                 <div class="{card_class}">
                     <div class="kanban-title">{client}{badge_dispute}{badge_overdue}</div>
                     <div class="kanban-meta">{comp_name} | Дата: {dt_str}</div>
-                    <div class="kanban-detail"><strong>Отговорник:</strong> {meta_info['assignee']}</div>
-                    <div class="kanban-detail"><strong>Срок до:</strong> {dl_display}</div>
-                    <div class="kanban-detail"><strong>Действие:</strong> {meta_info['recommendation']}</div>
+                    <div class="kanban-detail"><strong>Отговорници:</strong> {meta_info['assignees']}</div>
+                    <div class="kanban-detail"><strong>Задачи:</strong> {meta_info['recommendations']}</div>
+                    <div class="kanban-detail"><strong>Най-ранен срок:</strong> {meta_info['earliest_deadline'] or 'Няма'}</div>
                 </div>
                 """
                 with column_obj:
@@ -370,59 +379,3 @@ def render_signal_registry():
                 with col4: event_time_str = st.text_input("Час (напр. 1430) *", placeholder="Въведете цифри...")
 
                 st.subheader("Данни за клиента")
-                col5, col6, col7, col8 = st.columns([2, 1, 1, 1])
-                with col5:
-                    client_name = st.text_input("Име/Наименование *")
-                    client_type = st.selectbox("Вид клиент", ["Юридическо лице", "Физическо лице", "Неизвестно"])
-                with col6:
-                    client_phone = st.text_input("Телефон")
-                    client_eik = st.text_input("ЕИК (за ЮЛ)")
-                with col7:
-                    client_email = st.text_input("Email")
-                    contract_number = st.text_input("Договор/Поръчка №", max_chars=20)
-                with col8: client_action_needed = st.checkbox("Очаква ли се действие с клиента?", value=False)
-                    
-                st.subheader("Същност на проблема")
-                col9, col10 = st.columns(2)
-                with col9:
-                    case_type = st.selectbox("Касае *", ["Наем", "Продажба", "Ремонт", "Друго"])
-                    call_number = st.text_input("Номер на разговора (аудио запис)")
-                with col10: 
-                    machines = st.text_input("Машина/и", max_chars=100)
-                    consultant_name = st.text_input("Консултант (Имена)", max_chars=100)
-                    
-                description = st.text_area("Изложение на проблема *", height=120)
-                st.write("*Полетата със звезда са задължителни.*")
-                submit_button = st.form_submit_button("Запиши първичен картон", type="primary")
-
-                if submit_button:
-                    formatted_time = parse_smart_time(event_time_str)
-                    if not company_selected or not client_name or not description or not event_time_str: st.error("⚠️ Моля, попълнете задължителните полета!")
-                    elif not formatted_time: st.error("⚠️ Невалиден час!")
-                    else:
-                        try:
-                            company_id = COMPANY_MAP.get(company_selected)
-                            datetime_str = f"{event_date.strftime('%Y-%m-%d')} {formatted_time}"
-                            new_record = {
-                                "channel": channel, "event_datetime": datetime_str, "company_id": company_id,
-                                "client_name": client_name, "client_phone": client_phone, "client_email": client_email,
-                                "client_type": client_type, "client_eik": client_eik, "contract_number": contract_number,
-                                "case_type": case_type, "call_number": call_number, "machines": machines, "consultant": consultant_name,
-                                "client_action_needed": client_action_needed, "description": description,
-                                "current_status": "Чака заключение и препоръка"
-                            }
-                            inserted = supabase.table("complaints").insert(new_record).execute()
-                            st.session_state.form_key += 1
-                            if inserted.data: st.session_state.auto_open_ticket_id = inserted.data[0]['id']
-                            st.rerun()
-                        except Exception as e: st.error(f"Грешка при запис: {e}")
-        else:
-            st.warning("⚠️ Нямате права за създаване на нови сигнали.")
-
-    if 'auto_open_ticket_id' in st.session_state:
-        t_id = st.session_state['auto_open_ticket_id']
-        del st.session_state['auto_open_ticket_id']
-        try:
-            t_res = supabase.table("complaints").select("*").eq("id", t_id).execute()
-            if t_res.data: show_ticket_details(t_res.data[0], df_complaints)
-        except Exception: pass
