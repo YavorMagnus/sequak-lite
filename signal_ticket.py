@@ -74,7 +74,10 @@ def show_ticket_details(ticket, df_complaints_param):
             for t in active_tasks:
                 as_text = f"{t.get('assigned_to_1', '')}"
                 if t.get('assigned_to_2'): as_text += f", {t.get('assigned_to_2')}"
-                st.warning(f"🔹 **{t['recommendation_type']}** | Изпълнители: **{as_text}** | Срок: **{t.get('deadline_date', '-')}**")
+                
+                # КОРЕКЦИЯ 1: Добавяме task_description (заключение + детайли) към жълтата кутия
+                desc = t.get('task_description', '')
+                st.warning(f"🔹 **{t['recommendation_type']}** | {desc} | Изпълнители: **{as_text}** | Срок: **{t.get('deadline_date', '-')}**")
             st.markdown("---")
 
         st.subheader("📋 Хронология на действията")
@@ -200,7 +203,7 @@ def show_ticket_details(ticket, df_complaints_param):
                             
                             if rec == "Проверка (поле)": has_field_check = True
 
-                            # Запис на задачата
+                            # Запис на задачата (тук данните са си били пълни и преди)
                             supabase.table("ticket_tasks").insert({
                                 "complaint_id": ticket['id'], "recommendation_type": rec,
                                 "task_description": f"Заключение: {conc} | Детайли: {det}",
@@ -233,7 +236,11 @@ def show_ticket_details(ticket, df_complaints_param):
                                 
                                 logs.append(f"Назначена задача: {rec} (Нарушено правило: {applied_rule_text} | Наказан: {p_name} - {p_val})")
                             else:
-                                logs.append(f"Назначена задача: {rec} -> {a1}")
+                                # КОРЕКЦИЯ 2: Обогатен запис за стандартните задачи
+                                assignees_str = a1 if a1 != "Избери..." else "Неизвестен"
+                                if a2 and a2 != "-": assignees_str += f", {a2}"
+                                
+                                logs.append(f"Назначена задача: {rec} (Заключение: {conc} | Детайли: {det} | Изпълнители: {assignees_str})")
 
                         if logs:
                             supabase.table("complaint_history").insert({
