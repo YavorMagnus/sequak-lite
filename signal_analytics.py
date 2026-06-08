@@ -11,24 +11,28 @@ from utils import supabase, check_permission, TERMINAL_STATUSES
 def get_dominant_resolution(action_details_str):
     """
     Priority Waterfall (Йерархичен приоритет) за финалните резултати.
-    Търси най-тежката мярка в текста и класифицира сигнала по нея.
+    Търси най-тежката мярка в текста и класифицира сигнала по нея,
+    игнорирайки уникалните детайли (имена, суми), за да окрупни данните за графиката.
     """
     if not action_details_str:
         return "Друго / Без приоритет"
         
-    priorities = [
-        "Реорганизация",
-        "Наказание",
-        "Обучение",
-        "Планиране на ресурс",
-        "Техническа корекция",
-        "Обсъждане с колега"
-    ]
+    # Обръщаме всичко в малки букви за сигурно намиране
+    text = str(action_details_str).lower()
     
-    for p in priorities:
-        if p in action_details_str:
-            return p
-            
+    if "реорганизация" in text:
+        return "Реорганизация"
+    elif "наказание" in text or "нарушение" in text:
+        return "Наказание / Нарушение"
+    elif "обучение" in text or "обуч" in text:
+        return "Обучение"
+    elif "планиране на ресурс" in text:
+        return "Планиране на ресурс"
+    elif "техническа корекция" in text:
+        return "Техническа корекция"
+    elif "обсъждане с колега" in text:
+        return "Обсъждане с колега"
+        
     return "Друго / Без приоритет"
 
 def render_signal_analytics():
@@ -179,6 +183,9 @@ def render_signal_analytics():
                     if final_resolutions:
                         conc_df = pd.DataFrame(final_resolutions, columns=['Решение']).value_counts().reset_index()
                         conc_df.columns = ['Водещо Решение', 'Брой']
+                        # Сортираме стълбчетата, за да е подредена и четлива графиката
+                        conc_df = conc_df.sort_values(by='Брой', ascending=False)
+                        
                         fig_conc = px.bar(conc_df, x='Водещо Решение', y='Брой', color='Водещо Решение', color_discrete_sequence=px.colors.qualitative.Set3)
                         fig_conc.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', showlegend=False)
                         st.plotly_chart(fig_conc, use_container_width=True)
