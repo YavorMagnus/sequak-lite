@@ -252,14 +252,7 @@ def render_mp_dashboard():
                         if 'consultant' in df_to_insert.columns: df_to_insert['consultant'] = df_to_insert['consultant'].fillna('Неизвестен').astype(str)
                         else: df_to_insert['consultant'] = 'Неизвестен'
 
-                        def get_smart_transaction_type(tag):
-                            tag_str = str(tag)
-                            if 'Наем' in tag_str: return 'Наем'
-                            elif 'Поръчка' in tag_str or 'Продажба' in tag_str: return 'Продажба'
-                            return 'Неопределен'
-                            
-                        df_to_insert['transaction_type'] = df_to_insert['item_tag'].apply(get_smart_transaction_type)
-                        df_to_insert['event_date'] = pd.to_datetime(df_to_insert['event_date'], dayfirst=True).dt.strftime('%Y-%m-%d %H:%M:%S')
+                        df_to_insert['event_date'] = pd.to_datetime(df_to_insert['event_date'], dayfirst=True, errors='coerce').dt.strftime('%Y-%m-%d')
                         
                         if df_to_insert['total_value_eur'].dtype == object:
                             df_to_insert['total_value_eur'] = df_to_insert['total_value_eur'].astype(str).str.replace(r'\s+', '', regex=True).str.replace(',', '.')
@@ -276,14 +269,14 @@ def render_mp_dashboard():
                         if not df_pp.empty and 'event_date' in df_pp.columns:
                             db_cmp = df_pp['company_code'].astype(str).str.strip().str.upper()
                             db_tag = df_pp['item_tag'].astype(str).str.strip().str.lower()
-                            db_date = pd.to_datetime(df_pp['event_date'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                            db_date = pd.to_datetime(df_pp['event_date'], errors='coerce').dt.strftime('%Y-%m-%d')
                             db_val = pd.to_numeric(df_pp['total_value_eur'], errors='coerce').fillna(0).round(2).apply(lambda x: f"{x:.2f}")
                             existing_sigs = db_cmp + "|" + db_tag + "|" + db_date + "|" + db_val
                             existing_fingerprints = set(existing_sigs)
 
                         new_cmp = df_to_insert['mapped_code'].astype(str).str.strip().str.upper()
                         new_tag = df_to_insert['item_tag'].astype(str).str.strip().str.lower()
-                        new_date = pd.to_datetime(df_to_insert['event_date'], errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
+                        new_date = pd.to_datetime(df_to_insert['event_date'], errors='coerce').dt.strftime('%Y-%m-%d')
                         new_val = pd.to_numeric(df_to_insert['total_value_eur'], errors='coerce').fillna(0).round(2).apply(lambda x: f"{x:.2f}")
 
                         df_to_insert['fingerprint'] = new_cmp + "|" + new_tag + "|" + new_date + "|" + new_val
@@ -297,27 +290,31 @@ def render_mp_dashboard():
                             records = df_final.to_dict(orient='records')
                             total_records = len(records)
                             success_count = 0
+                            error_messages = set()
                             
                             progress_bar = st.progress(0, text="Инициализация на записите...")
                             status_text = st.empty()
                             
                             for i, record in enumerate(records):
                                 try:
-                                    supabase.table("missed_profits").insert(record).execute()
+                                    res = supabase.table("missed_profits").insert(record).execute()
                                     success_count += 1
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    error_messages.add(str(e))
                                 
                                 progress_pct = (i + 1) / total_records
                                 progress_bar.progress(progress_pct, text=f"Проверка и запис: {i + 1} от {total_records}...")
                             
                             if success_count > 0:
                                 status_text.success(f"🎉 Готово! Бяха добавени {success_count} НОВИ уникални записа (от {total_records} обработени). Презареждам...")
+                                time.sleep(3)
+                                st.rerun() 
                             else:
-                                status_text.warning(f"⚠️ Базата данни отхвърли всички {total_records} записа като дубликати.")
-                            
-                            time.sleep(3)
-                            st.rerun() 
+                                status_text.error(f"❌ Всички {total_records} записа бяха отхвърлени от базата данни.")
+                                if error_messages:
+                                    st.error("Точни грешки, върнати от Supabase:")
+                                    for msg in list(error_messages)[:5]:
+                                        st.code(msg)
                     else:
                         st.warning("⚠️ Липсват нужни колони (Уверете се, че има 'Дата', 'Тагове', 'Обща стойност', 'Резултат', 'Фирма').")
             except Exception as e:
